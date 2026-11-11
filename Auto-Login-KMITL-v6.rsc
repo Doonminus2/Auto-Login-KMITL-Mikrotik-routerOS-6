@@ -4,6 +4,8 @@
 #   1. ParseJSON rewritten with :find/:pick (no v7 JSON command)
 #   2. Login counts as successful only when "success":true is in the reply
 #   3. Empty IP in config = read the WAN IP from the DHCP client on ether1
+#   4. Heartbeat re-logs in only when the connection check fails, not when the
+#      nani heartbeat endpoint is unreachable
 # Endpoints, payload and schedulers are unchanged from upstream.
 
 ################################# Login script ################################
@@ -215,19 +217,19 @@
     :local data "username=$($account->"username")&os=Chrome v116.0.5845.141 on Windows 10 64-bit&speed=1.29&newauth=1";
     :local content;
 
+    # v6 port: the connection check above already passed, so a failed nani heartbeat
+    # is only logged at debug level and does not trigger a re-login.
+    # (nani.csc.kmitl.ac.th was unreachable on 2026-11-11, which made upstream re-login every minute.)
     :do {
       :set content ([/tool fetch http-method=post http-data=$data url=$url as-value output=user]->"status");
     } on-error={
-      :log warning "[Auto-Login] HeartBeat Network Error.";
-      /system script run "AutoLogin-Login";
-      :return nil;
+      :set content "unreachable";
     }
     
     :if ($content = "finished") do={
       :log debug "[Auto-Login] HeartBeat OK.";
     } else={
-      :log error "[Auto-Login] HeartBeat Failed (Status: $content).";
-      /system script run "AutoLogin-Login";
+      :log debug "[Auto-Login] HeartBeat endpoint $content, internet still OK. No re-login.";
     }
   }
 
