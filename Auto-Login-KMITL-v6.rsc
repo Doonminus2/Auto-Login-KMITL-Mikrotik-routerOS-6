@@ -1,3 +1,11 @@
+# Auto-Login-KMITL for RouterOS v6 (target: 6.45.9, RB951Ui-2nD)
+# Port of CE-HOUSE/Auto-Login-KMITL-Mikrotik, which needs v7.13 for JSON parsing.
+# Changes vs upstream:
+#   1. ParseJSON rewritten with :find/:pick (no v7 JSON command)
+#   2. Login counts as successful only when "success":true is in the reply
+#   3. Empty IP in config = read the WAN IP from the DHCP client on ether1
+# Endpoints, payload and schedulers are unchanged from upstream.
+
 ################################# Login script ################################
 
 :if ([/system script find name="Auto-Login-KMITL"] != "") do={
@@ -34,7 +42,13 @@
   :local macRaw [/interface ethernet get [/interface ethernet find default-name=ether1] mac-address];
   :local umac ([:pick $macRaw 0 2] . [:pick $macRaw 3 5] . [:pick $macRaw 6 8] . [:pick $macRaw 9 11] . [:pick $macRaw 12 14] . [:pick $macRaw 15 17]);
   :local acip "10.252.13.10";
-  :local data "userName=$($account->"username")&userPass=$($account->"password")&uaddress=$($account->"ipaddress")&umac=$umac&agreed=1&acip=$acip&authType=1";
+  # v6: empty ipaddress in config = use the address the DHCP client got on ether1
+  :local uaddress ($account->"ipaddress");
+  :if ([:len $uaddress] = 0) do={
+    :local wan [/ip dhcp-client get [/ip dhcp-client find interface=ether1] address];
+    :set uaddress [:pick $wan 0 [:find $wan "/"]];
+  }
+  :local data "userName=$($account->"username")&userPass=$($account->"password")&uaddress=$uaddress&umac=$umac&agreed=1&acip=$acip&authType=1";
   :local url "https://portal.kmitl.ac.th:19008/portalauth/login";
 
   # Execute Login
@@ -47,7 +61,7 @@
   }
 
   # Verify Success
-  :if ([$ParseJSON $content "success"] = false) do={
+  :if ([$ParseJSON $content "success"] != true) do={
     :log error "[Auto-Login] Can not login... server-msg: $[$ParseJSON $content "message"]";
     :return false;
   }
@@ -95,14 +109,23 @@
     }
   }
 
+  # v6: minimal JSON reader. $1 = JSON text, $2 = top-level key.
+  # Returns true/false, the string value, the raw number/null text, or "" if the key is missing.
   :global ParseJSON do={
-    :local json;
-    :do {
-      :set json [:deserialize from=json value=$1];
-    } on-error={
-      :return [];
+    :local key ("\"" . $2 . "\"");
+    :local pos [:find $1 $key];
+    :if ([:typeof $pos] = "nil") do={ :return ""; }
+    :set pos ($pos + [:len $key]);
+    :while ([:pick $1 $pos] = " " || [:pick $1 $pos] = ":") do={ :set pos ($pos + 1); }
+    :if ([:pick $1 $pos] = "\"") do={
+      :local end [:find $1 "\"" $pos];
+      :return [:pick $1 ($pos + 1) $end];
     }
-    :return ($json->$2);
+    :if ([:pick $1 $pos ($pos + 4)] = "true") do={ :return true; }
+    :if ([:pick $1 $pos ($pos + 5)] = "false") do={ :return false; }
+    :local end [:find $1 "," $pos];
+    :if ([:typeof $end] = "nil") do={ :set end [:find $1 "}" $pos]; }
+    :return [:pick $1 $pos $end];
   }
 
   :global UnloadUtil do={
@@ -249,6 +272,7 @@
 
     :put "Please enter your username and password to use auto-login";
     :put "Do not enter @kmitl.ac.th in username"
+    :put "IP: press Enter with nothing typed to use the WAN IP from DHCP on ether1"
     :set loginUser [$input "Username"];
     :set loginPass [$input "Password" true];
     :set loginIP [$input "IP"];
