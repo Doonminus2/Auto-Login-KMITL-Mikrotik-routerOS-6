@@ -25,7 +25,7 @@ The router cannot reach GitHub before it is logged in, so copy the file to the r
 1. Download `Auto-Login-KMITL-v6.rsc` to your computer.
 2. Upload it to the router (or drag it into Winbox → Files):
 ```bash
-   scp Auto-Login-KMITL-v6.rsc admin@192.168.88.1:/
+   scp Auto-Login-KMITL-v6.rsc admin@x.x.x.x:/
 ```
  
 3. Open a terminal on the router and import it:
